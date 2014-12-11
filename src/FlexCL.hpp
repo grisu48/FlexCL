@@ -25,8 +25,8 @@
 #define _FLEXCL_DEBUG_SWITCH_ 0
 
 /** Build and version number for this library */
-#define _FLEX_CL_BUILD_ 700
-#define _FLEX_CL_VERSION_ "0.7"
+#define _FLEX_CL_BUILD_ 710
+#define _FLEX_CL_VERSION_ "0.71"
 
 /* All FlexCL classes are in this namespace */
 namespace flexCL {
@@ -179,6 +179,8 @@ public:
 	void close();
 	
 	Context* createContext(void);
+	Context* createContext(cl_platform_id, cl_device_id);
+	Context* createContext(cl_platform_id);
 	Context* createContext(cl_device_type device_type);
 	Context* createGPUContext(void);
 	Context* createCPUContext(void);
@@ -307,6 +309,8 @@ public:
 	
 	cl_platform_id platform_id();
 	
+	std::vector<DeviceInfo> devices();
+	
 	friend class OpenCL;
 	friend class Context;
 };
@@ -323,6 +327,16 @@ protected:
 	std::string _name;
 	std::string _vendor;
 	std::string _extensions;
+	std::string _max_mem_alloc_size;
+	std::string _max_compute_units;
+	std::string _device_version;
+	std::string _driver_version;
+	std::string _device_opencl_version;
+	std::string _address_bits;
+	std::string _global_mem_size;
+	std::string _global_mem_cache_size;
+	std::string _local_mem_size;
+	std::string _local_mem_type;
 	size_t _timer_resolution;
 	
 public:
@@ -337,9 +351,21 @@ public:
 	std::string vendor();
 	std::string extensions();
 	unsigned long timer_resolution();
-	
+	/** @return max size of memory object allocation in bytes */
+	std::string max_mem_alloc_size();
+	/** @return max number of computation units */
+	std::string max_compute_units();
+	std::string device_version();
+	std::string driver_version();
+	std::string device_opencl_version();
+	std::string address_bits();
+	std::string global_mem_size();
+	std::string global_mem_cache_size();
+	std::string local_mem_size();
+	std::string local_mem_type();
 	friend class OpenCL;
 	friend class Context;
+	friend class PlatformInfo;
 };
 
 /** A OpenCL program that is associated to a certain context */
@@ -391,6 +417,7 @@ public:
 	
 	void addArgument(size_t size, const void* arg_ptr);
 	void setArgument(unsigned int index, cl_mem *arg_ptr);
+	void setArgument(unsigned int index, cl_mem &arg_ptr);
 	void setArgument(unsigned int index, size_t size, const void* arg_ptr);
 	void setArgumentLocalMem(unsigned int index, size_t size);
 	void setArgument(unsigned int index, float arg);

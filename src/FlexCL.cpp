@@ -9,12 +9,41 @@
  */
 
 #include "FlexCL.hpp"
+#include <string>
+#include <sstream>
 #include <fstream>
 #include <streambuf>
-
+#include <algorithm> 
+#include <functional> 
+#include <cctype>
+#include <locale>
 
 using namespace flexCL;
 using namespace std;
+
+
+/* ==== General usefull stuff ======================================= */
+
+// Trim from left
+static string _flexCL_ltrim(string s) {
+        s.erase(s.begin(), std::find_if(s.begin(), s.end(), std::not1(std::ptr_fun<int, int>(std::isspace))));
+        return s;
+}
+
+// trim from end
+static string _flexCL_rtrim(string s) {
+        s.erase(std::find_if(s.rbegin(), s.rend(), std::not1(std::ptr_fun<int, int>(std::isspace))).base(), s.end());
+        return s;
+}
+
+// trim from both ends
+static string _flexCL_trim(string s) {
+        return _flexCL_ltrim(_flexCL_rtrim(s));
+}
+
+
+
+/* ==== Static OpenCL routines ====================================== */
 
 /* Return code check routine */
 static inline void checkReturn(cl_int ret, const char* msg) {
@@ -34,7 +63,7 @@ static inline unsigned long _flexcl_profile_info(cl_event &perf_event, cl_profil
 }
 
 
-
+/* ==== Here the OpenCL part starts ================================= */
 
 OpenCL::OpenCL() {
 	
@@ -112,6 +141,59 @@ Context* OpenCL::createContext(void) {
 	return createContext(CL_DEVICE_TYPE_DEFAULT);
 }
 
+Context* OpenCL::createContext(cl_platform_id platform_id, cl_device_id device_id) {
+	cl_context context = clCreateContext(NULL, 1, &device_id, NULL, NULL, &ret);
+	switch(ret) {
+		case CL_SUCCESS: break;
+		case CL_INVALID_PLATFORM: throw DeviceException("Invalid platform");
+		case CL_INVALID_VALUE: throw DeviceException("Invalid context properties");
+		case CL_DEVICE_NOT_AVAILABLE: throw DeviceException("No GPU device available");
+		case CL_DEVICE_NOT_FOUND: throw DeviceException("No GPU device found");
+		case CL_OUT_OF_HOST_MEMORY: throw DeviceException("Out of memory");
+		case CL_INVALID_DEVICE_TYPE: throw DeviceException("Device type is invalid");
+		default: throw DeviceException("Unknwon error while creating GPU context");
+	}
+	// Ok - The OpenCL context is created sucessfully.
+	
+	Context *context_Obj = new Context(this, context, device_id, platform_id);
+	contexts.push_back(context_Obj);
+	return context_Obj;
+}
+
+Context* OpenCL::createContext(cl_platform_id p_id) {
+#if _FLEXCL_DEBUG_SWITCH_ == 1
+	cout << "OpenCL::createContext(platform = " << p_id << ")" << endl;
+#endif
+	cl_device_id device_id = NULL;
+	cl_platform_id platform_id = NULL;
+	cl_uint num_devices;
+	
+	
+	ret = clGetDeviceIDs( p_id, CL_DEVICE_TYPE_ALL, 1, &device_id, &num_devices);
+	checkReturn(ret, "Querying devices failed");
+	if(num_devices > 0) {
+		platform_id = p_id;
+	} else
+		throw DeviceException("Device type not found");
+	
+	cl_context context = clCreateContext(NULL, 1, &device_id, NULL, NULL, &ret);
+	switch(ret) {
+		case CL_SUCCESS: break;
+		case CL_INVALID_PLATFORM: throw DeviceException("Invalid platform");
+		case CL_INVALID_VALUE: throw DeviceException("Invalid context properties");
+		case CL_DEVICE_NOT_AVAILABLE: throw DeviceException("No GPU device available");
+		case CL_DEVICE_NOT_FOUND: throw DeviceException("No GPU device found");
+		case CL_OUT_OF_HOST_MEMORY: throw DeviceException("Out of memory");
+		case CL_INVALID_DEVICE_TYPE: throw DeviceException("Device type is invalid");
+		default: throw DeviceException("Unknwon error while creating GPU context");
+	}
+	// Ok - The OpenCL context is created sucessfully.
+	
+	Context *context_Obj = new Context(this, context, device_id, platform_id);
+	contexts.push_back(context_Obj);
+	return context_Obj;
+}
+
 Context* OpenCL::createContext(cl_device_type device_type) {
 #if _FLEXCL_DEBUG_SWITCH_ == 1
 	cout << "OpenCL::createContext(" << device_type << ")" << endl;
@@ -123,6 +205,7 @@ Context* OpenCL::createContext(cl_device_type device_type) {
 	for(cl_uint id = 0; id<ret_num_platforms;id++) {
 		cl_device_id dev_id;
 		ret = clGetDeviceIDs( platform_ids[id], device_type, 1, &dev_id, &num_devices);
+		checkReturn(ret, "Querying devices failed");
 		if(num_devices > 0) {
 			platform_id = platform_ids[id];
 			device_id = dev_id;
@@ -508,10 +591,68 @@ Program* Context::createProgramFromSource(const char *kernel_source, size_t leng
 	return program_Obj;
 }
 
+/** Reads a source file and returns it's value
+ * This method also supports the #include directive
+ * */
+static string _flexCL_readSourceFile(const char* filename) {
+	stringstream buffer;
+	
+	ifstream in_file;
+	in_file.open(filename);
+	if(!in_file.is_open()) {
+		string errmsg = "Cannot open file " + string(filename) + " for #include statement";
+		throw IOException(errmsg);
+	}
+	string line;
+	string include_header = "#include ";
+	try {
+		unsigned long line_no = 0;
+		bool firstLine = true;
+		while(! in_file.eof()) {
+			// Read line by line
+			getline(in_file,line);
+			line_no++;
+			if(firstLine)
+				firstLine = false;
+			else
+				buffer << '\n';
+			// Special hanlding (#include)
+			if(line.substr(0,include_header.length()) == include_header) {
+				string include_filename = line.substr(include_header.length());
+				include_filename = _flexCL_trim(include_filename);
+				
+				// check filename syntax
+				if(include_filename.at(0) != '\"' && include_filename.at(include_filename.length()-1) != '\"') {
+					string errmsg = string(filename) + " - line " + ::to_string(line_no) + ": #include statement has wrong syntax";
+					throw IOException(errmsg);
+				}
+				
+				include_filename = include_filename.substr(1, include_filename.length()-2);
+				include_filename = _flexCL_trim(include_filename);
+				
+				// #include the given file
+				buffer << _flexCL_readSourceFile(include_filename.c_str());
+			} else {
+				// Simply add buffer line
+				buffer << line;
+			}
+		}
+		in_file.close();
+		
+	} catch (...) {
+		in_file.close();
+		throw;
+	}
+	
+	return buffer.str();
+}
+
 Program* Context::createProgramFromSourceFile(const char *filename)  {
 #if _FLEXCL_DEBUG_SWITCH_ == 1
 	cout << "OpenCL::Program::createProgramFromSourceFile(" << filename << ")" << endl;
 #endif
+	// Deprecated. We now use the _flexCL_readSourceFile function
+	/*
 	ifstream in_file;
 	in_file.open(filename);
 	if(!in_file.is_open()) throw IOException("Cannot open file");
@@ -523,8 +664,9 @@ Program* Context::createProgramFromSourceFile(const char *filename)  {
 	} catch (...) {
 		in_file.close();
 		throw;
-	}
+	} */
 	
+	string contents = _flexCL_readSourceFile(filename);
 	return this->createProgramFromSource(contents);
 }
 
@@ -702,6 +844,11 @@ void Kernel::setArgument(unsigned int index, size_t size, const void* arg_ptr) {
 	checkReturn(ret, "Failed setting kernel argument " + ::to_string(arg_index));
 }
 
+
+void Kernel::setArgument(unsigned int index, cl_mem &arg_ptr) {
+	this->setArgument(index, sizeof(cl_mem), (const void*)&arg_ptr);
+}
+
 void Kernel::setArgument(unsigned int index, cl_mem* arg_ptr) {
 	this->setArgument(index, sizeof(cl_mem), (const void*)arg_ptr);
 }
@@ -859,9 +1006,6 @@ void Kernel::collect_profile_infos(void) {
 	profiling_times[3] = _flexcl_profile_info(perf_event, CL_PROFILING_COMMAND_END);
 	
 	profile_infos_collected = true;
-	
-	//clGetEventProfilingInfo(perf_event, CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &start, NULL);
-	//clGetEventProfilingInfo(perf_event, CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &end, NULL);
 }
 
 unsigned long Kernel::runtime(void) {
@@ -904,6 +1048,31 @@ string PlatformInfo::vendor() { return this->_vendor; }
 string PlatformInfo::extensions() { return this->_extensions; }
 
 
+vector<DeviceInfo> PlatformInfo::devices() {
+	vector<DeviceInfo> result;
+	cl_int ret;
+	
+	cl_device_id* devices = NULL;
+	cl_uint num_devices;
+	
+	ret  = clGetDeviceIDs( this->_platform_id, CL_DEVICE_TYPE_ALL, 0, NULL, &num_devices);
+	devices = (cl_device_id*) malloc(sizeof(cl_device_id) * num_devices);
+	try {
+		ret |= clGetDeviceIDs( this->_platform_id, CL_DEVICE_TYPE_ALL, num_devices, devices, NULL);
+		checkReturn(ret, "Querying device failed");
+		
+		for(cl_uint i=0;i<num_devices;i++) {
+			result.push_back( DeviceInfo(devices[i]) );
+		}
+		
+	} catch (...) {
+		free(devices);
+		throw;
+	}
+	free(devices);
+	return result;
+}
+
 
 /* Specific device defines for the internal usage of device info */
 #define _FLEXCL_DEVICE_CPU_ 0x1
@@ -937,6 +1106,16 @@ DeviceInfo::DeviceInfo(cl_device_id device_id) {
 	this->_name = flexCL_device_info(device_id, CL_DEVICE_NAME);
 	this->_vendor = flexCL_device_info(device_id, CL_DEVICE_VENDOR);
 	this->_extensions = flexCL_device_info(device_id, CL_DEVICE_EXTENSIONS);
+	this->_max_mem_alloc_size = flexCL_device_info(device_id, CL_DEVICE_EXTENSIONS);
+	this->_max_compute_units = flexCL_device_info(device_id, CL_DEVICE_MAX_MEM_ALLOC_SIZE);
+	this->_device_version = flexCL_device_info(device_id, CL_DEVICE_VERSION);
+	this->_driver_version = flexCL_device_info(device_id, CL_DRIVER_VERSION);
+	this->_device_opencl_version = flexCL_device_info(device_id, CL_DEVICE_OPENCL_C_VERSION);
+	this->_address_bits = flexCL_device_info(device_id, CL_DEVICE_ADDRESS_BITS);
+	this->_global_mem_size = flexCL_device_info(device_id, CL_DEVICE_GLOBAL_MEM_SIZE);
+	this->_global_mem_cache_size = flexCL_device_info(device_id, CL_DEVICE_GLOBAL_MEM_CACHE_SIZE);
+	this->_local_mem_size = flexCL_device_info(device_id, CL_DEVICE_LOCAL_MEM_SIZE);
+	this->_local_mem_type = flexCL_device_info(device_id, CL_DEVICE_LOCAL_MEM_TYPE);
 	
 	ret = clGetDeviceInfo(device_id, CL_DEVICE_PROFILING_TIMER_RESOLUTION, sizeof(size_t), &this->_timer_resolution, NULL);
 	checkReturn(ret, "Error getting device info");
@@ -945,6 +1124,17 @@ DeviceInfo::DeviceInfo(cl_device_id device_id) {
 DeviceInfo::~DeviceInfo() {}
 
 cl_device_id DeviceInfo::device_id() { return this->_device_id; }
+
+string DeviceInfo::max_mem_alloc_size() { return this->_max_mem_alloc_size; }
+string DeviceInfo::max_compute_units() { return this->_max_compute_units; }
+string DeviceInfo::device_version() { return this->_device_version; }
+string DeviceInfo::driver_version() { return this->_driver_version; }
+string DeviceInfo::device_opencl_version() { return this->_device_opencl_version; }
+string DeviceInfo::address_bits() { return this->_address_bits; }
+string DeviceInfo::global_mem_size() { return this->_global_mem_size; }
+string DeviceInfo::global_mem_cache_size() { return this->_global_mem_cache_size; }
+string DeviceInfo::local_mem_size() { return this->_local_mem_size; }
+string DeviceInfo::local_mem_type() { return this->_local_mem_type; }
 
 bool DeviceInfo::isCPU(void) { return (this->_device_type & _FLEXCL_DEVICE_CPU_) != 0; }
 bool DeviceInfo::isGPU(void) { return (this->_device_type & _FLEXCL_DEVICE_GPU_) != 0; }
