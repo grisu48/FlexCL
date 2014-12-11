@@ -1,0 +1,4 @@
+clEnqueueCopyBuffer
+
+Create Buffer -> READ_ONLY, WRITE_ONLY flags
+Selective cleanup (e.g. kernel, ecc.)
