@@ -5,7 +5,7 @@ AMDSDK_PATH=/opt/AMDAPP
 
 # ==== COMPILER FLAGS ==== #
 CXX=g++
-CXX_FLAGS=-Wall -Werror -pedantic -std=c++11
+CXX_FLAGS=-Wall -pedantic -std=c++11
 
 
 # ==== INCLUDE AND LIB ==== #
