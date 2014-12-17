@@ -1,4 +1,5 @@
-clEnqueueCopyBuffer
-
-Create Buffer -> READ_ONLY, WRITE_ONLY flags
-Selective cleanup (e.g. kernel, ecc.)
+- clEnqueueCopyBuffer
+- Create Buffer -> READ_ONLY, WRITE_ONLY flags
+- Selective cleanup (e.g. kernel, ecc.)
+- Event implementation
+- clEnqueueBarrier is deprecated
