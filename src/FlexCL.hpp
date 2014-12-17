@@ -6,7 +6,12 @@
  * Title:         FlexCL
  * Author:        Felix Niederwanger
  * Description:   OpenCL wrapper library
- * 
+ *                This library is designed to provide an easy-to-use
+ *                object-oriented approach for OpenCL. It uses the default
+ *                OpenCL API and creates various wrapper objects around it.
+ *                It's designed in a way to reduce the thinking overhead when
+ *                dealing with memory objects on device Context and provide a 
+ *                easy cleanup, so that memory leaks are less probable to occur.
  * =============================================================================
  */
 
@@ -25,8 +30,8 @@
 #define _FLEXCL_DEBUG_SWITCH_ 0
 
 /** Build and version number for this library */
-#define _FLEX_CL_BUILD_ 710
-#define _FLEX_CL_VERSION_ "0.71"
+#define _FLEX_CL_BUILD_ 720
+#define _FLEX_CL_VERSION_ "0.72"
 
 /* All FlexCL classes are in this namespace */
 namespace flexCL {
@@ -231,11 +236,11 @@ public:
 	
 	void close();
 	
-	cl_device_id device_id();
-	cl_platform_id platform_id();
+	cl_device_id device_id(void);
+	cl_platform_id platform_id(void);
 	
-	PlatformInfo platform_info();
-	DeviceInfo device_info();
+	PlatformInfo platform_info(void);
+	DeviceInfo device_info(void);
 	
 	cl_command_queue createCommandQueue(void);
 	cl_command_queue createProfilingCommandQueue(void);
@@ -272,8 +277,12 @@ public:
 	void readBufferBlocking(cl_mem buffer, size_t size, void *dst_ptr);
 	unsigned long readBufferProfiling(cl_mem buffer, size_t size, void *dst_ptr);
 	
-	void flush();
-	void join();
+	void flush(void);
+	void join(void);
+	
+	/** Equeue a barrier that ensures that all preciding commands in the queue are 
+	 * completed, before any following commands are processed. */
+	void barrier(void);
 	
 	bool isOutOfOrder(void);
 	bool isProfiling(void);
