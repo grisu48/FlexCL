@@ -297,13 +297,22 @@ void Context::join() {
 #if _FLEXCL_DEBUG_SWITCH_ == 1
 		cout << "OpenCL::Context::join()" << endl;
 #endif
-		clFlush(command_queue);
+		/* Commented out, since the flush is implicit given by
+		 * clFinish */
+		//clFlush(command_queue);
 		clFinish(command_queue);
 	}
 #if _FLEXCL_DEBUG_SWITCH_ == 1
 	else
 		cout << "OpenCL::Context::join() -- WARN: no command queue" << endl;
 #endif
+}
+
+
+void Context::barrier(void) {
+	cl_int ret;
+	ret =  clEnqueueBarrier(this->command_queue);
+	checkReturn(ret, "Error enqueuing barrier in command queue");
 }
 
 void Context::releaseBuffer(cl_mem buffer) {
