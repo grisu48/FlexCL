@@ -3,7 +3,8 @@
  * 
  * Title:         FlexCL
  * Author:        Felix Niederwanger
- * Description:   OpenCL wrapper library
+ * Description:   OpenCL wrapper library providing object-oriented access to
+ *                OpenCL
  * 
  * =============================================================================
  */
@@ -120,19 +121,6 @@ vector<PlatformInfo> OpenCL::get_platforms(void) {
 	return result;
 }
 
-/*
-Context* OpenCL::createContext(void) {
-	cl_context context = clCreateContext( NULL, 1, &device_id, NULL, NULL, &ret);
-	checkReturn(ret, "Creating context failed");
-	// Ok - The OpenCL context is created sucessfully.
-	
-	Context *context_Obj = new Context(this, context, device_id, platform_ids[0]);
-	contexts.push_back(context_Obj);
-	return context_Obj;
-}
-*/
-
-
 Context* OpenCL::createGPUContext(void) {
 	return createContext(CL_DEVICE_TYPE_GPU);
 }
@@ -142,6 +130,9 @@ Context* OpenCL::createContext(void) {
 }
 
 Context* OpenCL::createContext(cl_platform_id platform_id, cl_device_id device_id) {
+#if _FLEXCL_DEBUG_SWITCH_ == 1
+	cout << "OpenCL::createContext(platform_id = " << platform_id << ", device_id = " << device_id << ")" << endl;
+#endif
 	cl_context context = clCreateContext(NULL, 1, &device_id, NULL, NULL, &ret);
 	switch(ret) {
 		case CL_SUCCESS: break;
@@ -196,7 +187,7 @@ Context* OpenCL::createContext(cl_platform_id p_id) {
 
 Context* OpenCL::createContext(cl_device_type device_type) {
 #if _FLEXCL_DEBUG_SWITCH_ == 1
-	cout << "OpenCL::createContext(" << device_type << ")" << endl;
+	cout << "OpenCL::createContext(device_type = " << device_type << ")" << endl;
 #endif
 	cl_device_id device_id = NULL;
 	cl_platform_id platform_id = NULL;
@@ -209,6 +200,7 @@ Context* OpenCL::createContext(cl_device_type device_type) {
 		if(num_devices > 0) {
 			platform_id = platform_ids[id];
 			device_id = dev_id;
+			break;
 		}
 	} 
 	
@@ -955,14 +947,17 @@ void Kernel::enqueueNDRange(unsigned int work_dim, const size_t *global_work_siz
 			cout << ",";
 		cout << global_work_size[i];
 	}
-	cout << "},{";
-	first = true;
-	for(unsigned int i=0;i<work_dim;i++) {
-		if(first)
-			first = false;
-		else
-			cout << ",";
-		cout << local_work_size[i];
+	cout << "}";
+	if(local_work_size != NULL) {
+		cout << ",{";
+		first = true;
+		for(unsigned int i=0;i<work_dim;i++) {
+			if(first)
+				first = false;
+			else
+				cout << ",";
+			cout << local_work_size[i];
+		}
 	}
 	cout << "})" << endl;
 #endif
