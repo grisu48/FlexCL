@@ -250,6 +250,10 @@ public:
 #if _FLEXCL_OPENGL_SUPPORT_ == 1
 class OpenGLBuffer {
 protected:
+	OpenGLBuffer(Context* context, GLuint buffer);
+	OpenGLBuffer(Context* context, GLuint buffer, cl_mem mem);
+	
+	
 	/** Associated context */
 	Context* _context;
 
@@ -265,8 +269,6 @@ protected:
 	/** Closes this buffer object, releasing all associated memory */
 	void close();
 public:
-	OpenGLBuffer(Context* context, GLuint buffer);
-	OpenGLBuffer(Context* context, GLuint buffer, cl_mem mem);
 	virtual ~OpenGLBuffer();
 
 	/** Aquire OpenCL context */

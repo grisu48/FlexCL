@@ -1401,5 +1401,3 @@ void OpenGLBuffer::writeBuffer(size_t size, void* data, bool blocking) {
 #undef _FLEXCL_DEVICE_ACCELERATED_
 
 
-
-
