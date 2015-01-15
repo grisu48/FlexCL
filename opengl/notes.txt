@@ -1,0 +1,35 @@
+  Notes on the OpenCL/OpenGL Interoperability  
+-----------------------------------------------
+
+Essential is to choose the same context as the OpenGL device. Otherwise unwanted
+memory transactions must take place, eliminating the performance gain.
+
+Via clGetGLContextInfoKHR you can enumerate all devices capable of sharing the
+OpenGL context with OpenCL.
+
+
+
+
+
+Functions
+---------
+
+cl_int clGetGLContextInfoKHR ( 	const cl_context_properties  *properties ,
+  	cl_gl_context_info  param_name ,
+  	size_t  param_value_size ,
+  	void  *param_value ,
+  	size_t  *param_value_size_ret )
+
+	param_value_size_ret:
+		CL_CURRENT_DEVICE_FOR_GL_CONTEXT_KHR 	cl_device_id 	Return the CL device currently associated with the specified OpenGL context.
+		CL_DEVICES_FOR_GL_CONTEXT_KHR 	cl_device_id[] 	List of all CL devices which may be associated with the specified OpenGL context.
+
+
+
+
+
+Sources and links
+-----------------
+
+Intel tutorial on OpenCL/OpenGL interoperability
+https://software.intel.com/en-us/articles/opencl-and-opengl-interoperability-tutorial
