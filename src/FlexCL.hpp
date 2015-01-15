@@ -15,6 +15,23 @@
  * =============================================================================
  */
 
+/* ==== CONFIGURATION SWITCHES ===== */
+
+// UNCOMMENT this line if you need serious debug output
+#ifndef _FLEXCL_DEBUG_SWITCH_
+#define _FLEXCL_DEBUG_SWITCH_ 0
+#endif
+
+#ifndef _FLEXCL_OPENGL_SUPPORT_
+#define _FLEXCL_OPENGL_SUPPORT_ 1
+#endif
+
+
+
+
+
+
+
 #include <iostream>
 #include <vector>
 #include <string>
@@ -26,12 +43,21 @@
 #include <CL/cl.h>
 #endif
 
-// UNCOMMENT this line if you need serious debug output
-#define _FLEXCL_DEBUG_SWITCH_ 0
+#if _FLEXCL_OPENGL_SUPPORT_ == 1
+// Compile the library with the following additional libs, if OpenGL support is included:
+// "-lm -lGLU -lglut -lGLU -lGL -lGLEW"
+#include <GL/glew.h>
+#include <GL/gl.h>
+#include <GL/glu.h>
+#include <GL/glut.h>
+#include <GL/glx.h>
+#include <CL/cl_gl.h>
+#endif
+
 
 /** Build and version number for this library */
-#define _FLEX_CL_BUILD_ 720
-#define _FLEX_CL_VERSION_ "0.72"
+#define _FLEX_CL_BUILD_ 735
+#define _FLEX_CL_VERSION_ "0.74"
 
 /* All FlexCL classes are in this namespace */
 namespace flexCL {
@@ -190,6 +216,20 @@ public:
 	Context* createGPUContext(void);
 	Context* createCPUContext(void);
 	
+#if _FLEXCL_OPENGL_SUPPORT_ == 1
+	/** Create context on the current OpenGL device.
+	 * If glut has not yet initialized, you can set initOpenGl = true 
+	 * to do a basic initialisation.
+	 * A initialized OpenGL context is needed, otherwise the library can
+	 * not find the used OpenGL platform and device context and the call
+	 * will fail.
+	 * 
+	 * Important: This call will also create a command queue for the
+	 * context
+	 * */
+	Context* createOpenGLContext(bool initOpenGl = true);
+#endif
+	
 	unsigned int plattform_count(void);
 	unsigned int device_count(void);
 	
@@ -207,6 +247,46 @@ public:
 	friend class DeviceInfo;
 };
 
+#if _FLEXCL_OPENGL_SUPPORT_ == 1
+class OpenGLBuffer {
+protected:
+	/** Associated context */
+	Context* _context;
+
+	/** OpenGL object identifier */
+	GLuint _buffer;
+	/** OpenCL memory object */
+	cl_mem _mem;
+	
+	bool _aquired;
+	bool _created;
+	bool _closed;
+	
+	/** Closes this buffer object, releasing all associated memory */
+	void close();
+public:
+	OpenGLBuffer(Context* context, GLuint buffer);
+	OpenGLBuffer(Context* context, GLuint buffer, cl_mem mem);
+	virtual ~OpenGLBuffer();
+
+	/** Aquire OpenCL context */
+	void aquire(void);
+	/** Release OpenCL context, so that the object is available for OpenGL */
+	void release(void);
+	
+	/** Checks if the buffer is aquired */
+	bool isAquired(void);
+	
+	
+	void readBuffer(size_t, void*, bool blocking = true);
+	void writeBuffer(size_t, void*, bool blocking = true);
+	
+	
+	friend class Context;
+	
+};
+#endif
+
 /** OpenCL self-cleaning context */
 class Context {
 private:
@@ -223,6 +303,9 @@ private:
 	
 	std::vector<cl_mem> buffers;
 	std::vector<Program*> programs;
+#if _FLEXCL_OPENGL_SUPPORT_ == 1
+	std::vector<OpenGLBuffer*> openglBuffers;
+#endif
 	
 	bool command_queue_outOfOrder = false;
 	bool command_queue_profiling = false;
@@ -231,6 +314,16 @@ protected:
 	Context(OpenCL *owner, cl_context context, cl_device_id device_id, cl_platform_id platform_id);
 	
 	void deleteCommandQueue(void);
+	
+	/** Removes a program from the program list */
+	void removeProgram(Program*);
+	
+#if _FLEXCL_OPENGL_SUPPORT_ == 1
+	/** Create cl_mem buffer from GLuint buffer */
+	cl_mem createSharedOpenGLBuffer(GLuint buffer, bool readAccess = true, bool writeAccess = true);
+	
+	void releaseBuffer(OpenGLBuffer*);
+#endif
 public:
 	virtual ~Context();
 	
@@ -246,18 +339,23 @@ public:
 	cl_command_queue createProfilingCommandQueue(void);
 	cl_command_queue createCommandQueue(bool outOfOrder, bool profiling);
 	
-	cl_mem createBuffer(size_t size);
-	cl_mem createBuffer(size_t size, void* host_ptr);
-	cl_mem createReadBuffer(size_t size);
-	cl_mem createReadBuffer(size_t size, void* host_ptr);
-	cl_mem createWriteBuffer(size_t size);
-	cl_mem createWriteBuffer(size_t size, void* host_ptr);
+	cl_mem createBuffer(size_t size, void* host_ptr = NULL);
+	cl_mem createReadBuffer(size_t size, void* host_ptr = NULL);
+	cl_mem createWriteBuffer(size_t size, void* host_ptr = NULL);
 	
+#if _FLEXCL_OPENGL_SUPPORT_ == 1
+	/** Create shared OpenCL buffer from OpenGL buffer.
+	 * This call must take place after glBindBuffer
+	 * */
+	OpenGLBuffer* createGLBuffer(GLuint buffer);
+	/** Create shared OpenGL buffer and associates a OpenCL buffer*/
+	OpenGLBuffer* createGLBuffer(size_t, const GLvoid* data = NULL, bool isStatic = false);
+#endif
+
 	void releaseBuffer(cl_mem buffer);
 	void deleteBuffer(cl_mem buffer);
 	
-	void writeBuffer(cl_mem buffer, size_t size, void* ptr);
-	void writeBuffer(cl_mem buffer, size_t size, void* ptr, bool blockingWrite);
+	void writeBuffer(cl_mem buffer, size_t size, void* ptr, bool blockingWrite = true);
 	unsigned long writeBufferProfiling(cl_mem buffer, size_t size, void* ptr);
 	
 	std::string get_compile_output(cl_program program);
@@ -272,8 +370,7 @@ public:
 	Program* createProgramFromBinaryFile(const char *filename);
 	Program* createProgramFromBinaryFile(std::string filename);
 	
-	void readBuffer(cl_mem buffer, size_t size, void *dst_ptr);
-	void readBuffer(cl_mem buffer, size_t size, void *dst_ptr, bool blockingRead);
+	void readBuffer(cl_mem buffer, size_t size, void *dst_ptr, bool blockingRead = true);
 	void readBufferBlocking(cl_mem buffer, size_t size, void *dst_ptr);
 	unsigned long readBufferProfiling(cl_mem buffer, size_t size, void *dst_ptr);
 	
@@ -292,6 +389,7 @@ public:
 	friend class Kernel;
 	friend class PlatformInfo;
 	friend class DeviceInfo;
+	friend class OpenGLBuffer;
 };
 
 /** OpenCL Platform information class */
@@ -385,16 +483,31 @@ private:
 	
 	
 	std::vector<Kernel*> kernels;
+	std::vector<cl_mem> program_buffers;
 	
 protected:
 	Program(Context *context, cl_program program);
+	
+	/** Remove a kernel from the program list */
+	void removeKernel(Kernel*);
 public:
 	virtual ~Program();
 	
 	Kernel* createKernel(std::string func_name);
 	Kernel* createKernel(const char* func_name);
 	
+	/** Create buffer on the context for this program */
+	cl_mem createBuffer(size_t size, void* host_ptr = NULL);
+	/** Create read-only buffer on the context for this program */
+	cl_mem createReadBuffer(size_t size, void* host_ptr = NULL);
+	/** Create write-only buffer on the context for this program */
+	cl_mem createWriteBuffer(size_t size, void* host_ptr = NULL);
+	
+	/** Clean the program removing all kernels and program buffers */
 	void cleanup();
+	
+	/** Get the parent context instance */
+	Context* getContext();
 	
 	friend class OpenCL;
 	friend class Context;
@@ -454,6 +567,11 @@ public:
 	unsigned long runtime(void);
 	/** Total runtime since queued in nanoseconds (1e-9)*/
 	unsigned long total_runtime(void);
+	
+	/** Get the parent program instance */
+	Program* getProgram();
+	/** Get the parent context instance */
+	Context* getContext();
 	
 	friend class OpenCL;
 	friend class Context;

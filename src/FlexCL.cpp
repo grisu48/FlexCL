@@ -43,6 +43,23 @@ static string _flexCL_trim(string s) {
 }
 
 
+// Static method for removing an item from a vector by it's value
+template<typename T>
+static void removeFromVector(vector<T>& vec, T &value) {
+	// Iterate while the values is still in the vector
+	bool found = false;
+	do {
+		found = false;
+		for(typename vector<T>::iterator it = vec.begin(); it != vec.end(); ++it) {
+			if(*it == value) {
+				found = true;
+				vec.erase(it);
+				break;
+			}
+		}
+	} while(found);
+}
+
 
 /* ==== Static OpenCL routines ====================================== */
 
@@ -142,7 +159,7 @@ Context* OpenCL::createContext(cl_platform_id platform_id, cl_device_id device_i
 		case CL_DEVICE_NOT_FOUND: throw DeviceException("No GPU device found");
 		case CL_OUT_OF_HOST_MEMORY: throw DeviceException("Out of memory");
 		case CL_INVALID_DEVICE_TYPE: throw DeviceException("Device type is invalid");
-		default: throw DeviceException("Unknwon error while creating GPU context");
+		default: throw DeviceException("Unknwon error while creating context");
 	}
 	// Ok - The OpenCL context is created sucessfully.
 	
@@ -176,7 +193,7 @@ Context* OpenCL::createContext(cl_platform_id p_id) {
 		case CL_DEVICE_NOT_FOUND: throw DeviceException("No GPU device found");
 		case CL_OUT_OF_HOST_MEMORY: throw DeviceException("Out of memory");
 		case CL_INVALID_DEVICE_TYPE: throw DeviceException("Device type is invalid");
-		default: throw DeviceException("Unknwon error while creating GPU context");
+		default: throw DeviceException("Unknwon error while creating context");
 	}
 	// Ok - The OpenCL context is created sucessfully.
 	
@@ -218,7 +235,7 @@ Context* OpenCL::createContext(cl_device_type device_type) {
 		case CL_DEVICE_NOT_FOUND: throw DeviceException("No GPU device found");
 		case CL_OUT_OF_HOST_MEMORY: throw DeviceException("Out of memory");
 		case CL_INVALID_DEVICE_TYPE: throw DeviceException("Device type is invalid");
-		default: throw DeviceException("Unknwon error while creating GPU context");
+		default: throw DeviceException("Unknwon error while creating context");
 	}
 	// Ok - The OpenCL context is created sucessfully.
 	
@@ -232,6 +249,81 @@ Context* OpenCL::createCPUContext(void) {
 	return this->createContext(CL_DEVICE_TYPE_CPU);
 }
 
+#if _FLEXCL_OPENGL_SUPPORT_ == 1
+Context* OpenCL::createOpenGLContext(bool initOpenGl) {
+	// Initialize GLUT, if desired
+	if(initOpenGl) {
+		int argc = 0;
+		glutInit(&argc, NULL);
+		glutCreateWindow("");
+		
+		GLenum res = glewInit();
+		if (res != GLEW_OK)
+		{
+			string error = "Glew error";
+			char* glewError = (char*)glewGetErrorString(res);
+			error = error + string( glewError );
+			throw OpenCLException(error);
+		}
+    }
+    
+    /* ==== Setting up OpenCL and query OpenGL shared devices==== */
+	const int max_devices = 1024;
+	cl_int state;
+	cl_context context;
+	cl_command_queue queue;
+	cl_platform_id platform[max_devices];
+	cl_device_id devices[max_devices];
+
+	//Get platform
+	cl_uint numberOfPlatforms = 0;
+	state = clGetPlatformIDs(max_devices, platform, &numberOfPlatforms);
+	if(state != CL_SUCCESS)
+		throw OpenCLException("Device resolution failed", state);
+	if(numberOfPlatforms <= 0)
+		throw OpenCLException("No shared OpenCL/OpenGL devices found (is GLUT initialized?)", state);
+
+	//Parameters needed to bind OpenGL's context to OpenCL's.
+	cl_context_properties properties[] = {	CL_GL_CONTEXT_KHR, (cl_context_properties) glXGetCurrentContext(),
+						CL_GLX_DISPLAY_KHR, (cl_context_properties) glXGetCurrentDisplay(),
+						CL_CONTEXT_PLATFORM, (cl_context_properties) platform[0],
+						0};
+
+	//Find openGL devices.
+	typedef CL_API_ENTRY cl_int (CL_API_CALL *CLpointer)(const cl_context_properties *properties, cl_gl_context_info param_name, size_t param_value_size, void *param_value, size_t *param_value_size_ret);
+	CL_API_ENTRY cl_int (CL_API_CALL *myCLGetGLContextInfoKHR)(const cl_context_properties *properties, cl_gl_context_info param_name, size_t param_value_size, void *param_value, size_t *param_value_size_ret) = (CLpointer)clGetExtensionFunctionAddressForPlatform(platform[0], "clGetGLContextInfoKHR");
+
+	size_t size;
+	state = myCLGetGLContextInfoKHR(properties, CL_DEVICES_FOR_GL_CONTEXT_KHR, max_devices*sizeof(cl_device_id), devices, &size);
+
+	if(state != CL_SUCCESS) {
+		throw OpenCLException("Device resolution failed (clGetGLContextInfoKHR)", state);
+	}
+	
+	const int numberSharedDevices = (int)(size/sizeof(cl_device_id));
+	if(numberSharedDevices <= 0) {
+		throw OpenCLException("No shared OpenCL/OpenGL devices found (number of shared devices = 0)", state);
+	}
+	
+	context = clCreateContext(properties, 1, &devices[0], NULL, NULL, &state);
+	if(state != CL_SUCCESS) {
+		throw OpenCLException("Context creation failed", state);
+	}
+		
+	
+	// Create profiling command queue
+	cl_command_queue_properties queue_props = CL_QUEUE_PROFILING_ENABLE;
+	queue = clCreateCommandQueue(context, devices[0], queue_props, &state);
+	if(state != CL_SUCCESS) {
+		throw OpenCLException("Command queue creation failed", state);
+	}
+	
+	Context *context_Obj = new Context(this, context, devices[0], platform[0]);
+	context_Obj->context = context;
+	context_Obj->command_queue = queue;
+	return context_Obj;
+}
+#endif
 
 unsigned int OpenCL::plattform_count(void) {
 	return (unsigned int)ret_num_platforms;
@@ -320,10 +412,7 @@ void Context::releaseBuffer(cl_mem buffer) {
 	cout << "OpenCL::Context::releaseBuffer(...)" << endl;
 #endif
 	clReleaseMemObject(buffer);
-	
-	for(vector<cl_mem>::iterator it = buffers.begin(); it != buffers.end(); ++it) {
-		if(*it == buffer) buffers.erase(it);
-	}
+	removeFromVector(this->buffers, buffer);
 }
 
 void Context::deleteBuffer(cl_mem buffer) {
@@ -334,13 +423,26 @@ void Context::close() {
 #if _FLEXCL_DEBUG_SWITCH_ == 1
 	cout << "OpenCL::Context::close()" << endl;
 #endif
+	// The cleaning sequence matters. Remember that the programs will do a cleanup as well
+	// removing their associated memory buffers. This MUST take place before removing the remaining
+	// memory objects
+	for(vector<Program*>::iterator it = programs.begin(); it != programs.end(); ++it)
+		delete *it;
+	programs.clear();
+	
+	// Clear shared OpenGL/OpenCL buffers
+#if _FLEXCL_OPENGL_SUPPORT_ == 1
+	for(vector<OpenGLBuffer*>::iterator it = openglBuffers.begin(); it != openglBuffers.end(); ++it) {
+		OpenGLBuffer *buffer = *it;
+		buffer->close();
+		delete buffer;
+	}
+	openglBuffers.clear();
+#endif
+	
 	for(vector<cl_mem>::iterator it = buffers.begin(); it != buffers.end(); ++it)
 		clReleaseMemObject(*it);
 	buffers.clear();
-	for(vector<Program*>::iterator it = programs.begin(); it != programs.end(); ++it)
-		delete *it;
-	buffers.clear();
-	programs.clear();
 	
 	deleteCommandQueue();
 	if (memobj != NULL) clReleaseMemObject(memobj);
@@ -381,21 +483,12 @@ cl_command_queue Context::createCommandQueue(bool outOfOrder, bool profiling) {
 	return this->command_queue;
 }
 
-cl_mem Context::createBuffer(size_t size) {
-#if _FLEXCL_DEBUG_SWITCH_ == 1
-	cout << "OpenCL::Context::createBuffer(" << size << " Bytes)" << endl;
-#endif
-	cl_mem buffer;
-	cl_int ret;
-	
-	buffer = clCreateBuffer(context, CL_MEM_READ_WRITE, size, NULL, &ret);
-	checkReturn(ret, "Creating queue failed");
-	return buffer;
-}
-
 cl_mem Context::createBuffer(size_t size, void* host_ptr) {
 #if _FLEXCL_DEBUG_SWITCH_ == 1
-	cout << "OpenCL::Context::createBuffer(" << size << " Bytes, Copy from host)" << endl;
+	if(host_ptr == NULL)
+		cout << "OpenCL::Context::createBuffer(" << size << " Bytes)" << endl;
+	else
+		cout << "OpenCL::Context::createBuffer(" << size << " Bytes, Copy from host)" << endl;
 #endif
 	cl_mem buffer;
 	cl_int ret;
@@ -405,21 +498,12 @@ cl_mem Context::createBuffer(size_t size, void* host_ptr) {
 	return buffer;
 }
 
-cl_mem Context::createReadBuffer(size_t size) {
-#if _FLEXCL_DEBUG_SWITCH_ == 1
-	cout << "OpenCL::Context::createReadBuffer(" << size << " Bytes)" << endl;
-#endif
-	cl_mem buffer;
-	cl_int ret;
-	
-	buffer = clCreateBuffer(context, CL_MEM_READ_ONLY, size, NULL, &ret);
-	checkReturn(ret, "Creating queue failed");
-	return buffer;
-}
-
 cl_mem Context::createReadBuffer(size_t size, void* host_ptr) {
 #if _FLEXCL_DEBUG_SWITCH_ == 1
-	cout << "OpenCL::Context::createReadBuffer(" << size << " Bytes, Copy from host)" << endl;
+	if(host_ptr == NULL)
+		cout << "OpenCL::Context::createReadBuffer(" << size << " Bytes)" << endl;
+	else
+		cout << "OpenCL::Context::createReadBuffer(" << size << " Bytes, Copy from host)" << endl;
 #endif
 	cl_mem buffer;
 	cl_int ret;
@@ -429,21 +513,12 @@ cl_mem Context::createReadBuffer(size_t size, void* host_ptr) {
 	return buffer;
 }
 
-cl_mem Context::createWriteBuffer(size_t size) {
-#if _FLEXCL_DEBUG_SWITCH_ == 1
-	cout << "OpenCL::Context::createWriteBuffer(" << size << " Bytes)" << endl;
-#endif
-	cl_mem buffer;
-	cl_int ret;
-	
-	buffer = clCreateBuffer(context, CL_MEM_WRITE_ONLY, size, NULL, &ret);
-	checkReturn(ret, "Creating queue failed");
-	return buffer;
-}
-
 cl_mem Context::createWriteBuffer(size_t size, void* host_ptr) {
 #if _FLEXCL_DEBUG_SWITCH_ == 1
-	cout << "OpenCL::Context::createWriteBuffer(" << size << " Bytes, Copy from host)" << endl;
+	if(host_ptr == NULL)
+		cout << "OpenCL::Context::createWriteBuffer(" << size << " Bytes)" << endl;
+	else
+		cout << "OpenCL::Context::createWriteBuffer(" << size << " Bytes, Copy from host)" << endl;
 #endif
 	cl_mem buffer;
 	cl_int ret;
@@ -452,13 +527,6 @@ cl_mem Context::createWriteBuffer(size_t size, void* host_ptr) {
 	checkReturn(ret, "Creating queue failed");
 	return buffer;
 	
-}
-
-void Context::writeBuffer(cl_mem buffer, size_t size, void* ptr) {
-#if _FLEXCL_DEBUG_SWITCH_ == 1
-	cout << "OpenCL::Context::writeBuffer(" << size << " Bytes)" << endl;
-#endif
-	writeBuffer(buffer, size, ptr, false);
 }
 
 void Context::writeBuffer(cl_mem buffer, size_t size, void* ptr, bool blockingWrite) {
@@ -523,6 +591,9 @@ Program* Context::createProgramFromBinary(string source) {
 }
 
 Program* Context::createProgramFromBinary(const unsigned char *source, size_t length) {
+#if _FLEXCL_DEBUG_SWITCH_ == 1
+	cout << "OpenCL::Context::createProgramFromBinary( ... ," << length << ")" << endl;
+#endif
 	cl_int ret;
 	cl_int binaryStatus;
 
@@ -575,7 +646,7 @@ Program* Context::createProgramFromSource(std::string source) {
 
 Program* Context::createProgramFromSource(const char *kernel_source, size_t length) {
 #if _FLEXCL_DEBUG_SWITCH_ == 1
-	cout << "OpenCL::Program::createProgramFromSource" << endl;
+	cout << "OpenCL::Context::createProgramFromSource( ... ," << length << ")" << endl;
 #endif
 	cl_int ret;
 	program = clCreateProgramWithSource(context, 1, (const char **)&kernel_source, (const size_t *)&length, &ret);
@@ -601,7 +672,7 @@ static string _flexCL_readSourceFile(const char* filename) {
 	ifstream in_file;
 	in_file.open(filename);
 	if(!in_file.is_open()) {
-		string errmsg = "Cannot open file " + string(filename) + " for #include statement";
+		string errmsg = "Cannot open file " + string(filename);
 		throw IOException(errmsg);
 	}
 	string line;
@@ -623,13 +694,23 @@ static string _flexCL_readSourceFile(const char* filename) {
 				include_filename = _flexCL_trim(include_filename);
 				
 				// check filename syntax
-				if(include_filename.at(0) != '\"' && include_filename.at(include_filename.length()-1) != '\"') {
+				bool localInclude;
+				if(include_filename.at(0) == '<' && include_filename.at(include_filename.length()-1) == '>') {
+					localInclude = false;
+				} else if(include_filename.at(0) == '\"' && include_filename.at(include_filename.length()-1) == '\"') {
+					localInclude = true;
+				} else {
 					string errmsg = string(filename) + " - line " + ::to_string(line_no) + ": #include statement has wrong syntax";
 					throw IOException(errmsg);
 				}
 				
 				include_filename = include_filename.substr(1, include_filename.length()-2);
 				include_filename = _flexCL_trim(include_filename);
+				
+				// Search for file, if not a local include
+				if(!localInclude) {
+					// TODO: This function will be implemented in a future release
+				}
 				
 				// #include the given file
 				buffer << _flexCL_readSourceFile(include_filename.c_str());
@@ -650,7 +731,7 @@ static string _flexCL_readSourceFile(const char* filename) {
 
 Program* Context::createProgramFromSourceFile(const char *filename)  {
 #if _FLEXCL_DEBUG_SWITCH_ == 1
-	cout << "OpenCL::Program::createProgramFromSourceFile(" << filename << ")" << endl;
+	cout << "OpenCL::Context::createProgramFromSourceFile(" << filename << ")" << endl;
 #endif
 	// Deprecated. We now use the _flexCL_readSourceFile function
 	/*
@@ -720,10 +801,6 @@ unsigned long Context::readBufferProfiling(cl_mem buffer, size_t size, void *dst
 	return (unsigned long)(end-start);
 }
 
-void Context::readBuffer(cl_mem buffer, size_t size, void *dst_ptr) {
-	this->readBuffer(buffer, size, dst_ptr, false);
-}
-
 void Context::readBufferBlocking(cl_mem buffer, size_t size, void *dst_ptr) {
 	this->readBuffer(buffer, size, dst_ptr, true);
 }
@@ -752,7 +829,9 @@ DeviceInfo Context::device_info() {
 	return DeviceInfo(this->_device_id);
 }
 
-
+void Context::removeProgram(Program *program) {
+	removeFromVector(programs, program);
+}
 
 
 
@@ -777,11 +856,19 @@ void Program::cleanup() {
 		delete *it;
 	}
 	kernels.clear();
+	for(vector<cl_mem>::iterator it = program_buffers.begin(); it != program_buffers.end(); ++it) {
+		cl_mem mem = *it;
+		context->releaseBuffer(mem);
+	}
+	program_buffers.clear();
 	
 	if (program != NULL) clReleaseProgram(program);
 	program = NULL;
 }
 
+void Program::removeKernel(Kernel *kernel) {
+	removeFromVector(kernels, kernel);
+}
 
 Kernel* Program::createKernel(string func_name) {
 	return this->createKernel(func_name.c_str());
@@ -798,6 +885,29 @@ Kernel* Program::createKernel(const char* func_name) {
 	Kernel *kernel_obj = new Kernel(this, kernel);
 	kernels.push_back(kernel_obj);
 	return kernel_obj;
+}
+
+Context* Program::getContext() {
+	return this->context;
+}
+
+
+cl_mem Program::createBuffer(size_t size, void* host_ptr) {
+	cl_mem mem = this->context->createBuffer(size, host_ptr);
+	this->program_buffers.push_back(mem);
+	return mem;
+}
+
+cl_mem Program::createReadBuffer(size_t size, void* host_ptr) {
+	cl_mem mem = this->context->createReadBuffer(size, host_ptr);
+	this->program_buffers.push_back(mem);
+	return mem;
+}
+
+cl_mem Program::createWriteBuffer(size_t size, void* host_ptr) {
+	cl_mem mem = this->context->createWriteBuffer(size, host_ptr);
+	this->program_buffers.push_back(mem);
+	return mem;
 }
 
 
@@ -817,6 +927,7 @@ Kernel::~Kernel() {
 #endif
 	if (kernel != NULL) clReleaseKernel(kernel);
 	kernel = NULL;
+	program->removeKernel(this);
 }
 
 
@@ -1022,6 +1133,18 @@ unsigned long Kernel::total_runtime(void) {
 	return (profiling_times[3] - profiling_times[0]);
 }
 
+
+
+Program* Kernel::getProgram() {
+	return this->program;
+}
+
+Context* Kernel::getContext() {
+	if(this->program == NULL) return NULL;
+	return this->program->getContext();
+}
+
+
 static inline string flexCL_platform_info(cl_platform_id id, cl_platform_info param_name) {
 	const int BUF_SIZE = 1024 * 10;
 	
@@ -1153,6 +1276,130 @@ unsigned long DeviceInfo::timer_resolution() {
 	else return (unsigned long)this->_timer_resolution;
 }
 
+
+
+
+
+
+
+#if _FLEXCL_OPENGL_SUPPORT_ == 1
+
+cl_mem Context::createSharedOpenGLBuffer(GLuint buffer, bool readAccess, bool writeAccess) {
+	cl_int ret;
+	cl_mem_flags flags;
+	if(readAccess && writeAccess)
+		flags = CL_MEM_READ_WRITE;
+	else {
+		if(readAccess)
+			flags = CL_MEM_READ_ONLY;
+		else if(writeAccess)
+			flags = CL_MEM_WRITE_ONLY;
+		else
+			flags = CL_MEM_READ_WRITE;		// Fallback on error
+	}
+	cl_mem result = clCreateFromGLBuffer(context, flags, buffer, &ret);
+	checkReturn(ret, "Error creating OpenCL buffer from shared OpenGL buffer");
+	return result;
+}
+
+OpenGLBuffer::~OpenGLBuffer() {
+	this->close();
+}
+
+void OpenGLBuffer::close(void) {
+	if(_closed) return;
+	
+	// Release the object
+	if(_aquired) this->release();
+	if(_created) {
+		// Release OpenGL buffer
+		glDeleteBuffers(1, &this->_buffer);
+	}
+	this->_context->releaseBuffer(this->_mem);
+	_closed = true;
+}
+
+
+OpenGLBuffer::OpenGLBuffer(Context* context, GLuint buffer) {
+	this->_context = context;
+	this->_buffer = buffer;
+	this->_mem = _context->createSharedOpenGLBuffer(buffer);
+	_closed = false;
+}
+
+OpenGLBuffer::OpenGLBuffer(Context* context, GLuint buffer, cl_mem mem) {
+	this->_context = context;
+	this->_buffer = buffer;
+	this->_mem = mem;
+	_closed = false;
+}
+
+void OpenGLBuffer::aquire(void) {
+	cl_int ret;
+	ret = clEnqueueAcquireGLObjects(this->_context->command_queue, 1, &this->_mem, 0, NULL, NULL);
+	checkReturn(ret, "Error aquiring OpenGL buffer");
+	_aquired = true;
+}
+
+void OpenGLBuffer::release(void) {
+	cl_int ret;
+	ret = clEnqueueReleaseGLObjects(this->_context->command_queue, 1, &this->_mem, 0, NULL, NULL);
+	checkReturn(ret, "Error releasing OpenGL buffer"); 
+	_aquired = false;
+}
+
+bool OpenGLBuffer::isAquired(void) { return this->_aquired; }
+
+OpenGLBuffer* Context::createGLBuffer(GLuint buffer) {
+	OpenGLBuffer *bufObj = new OpenGLBuffer(this, buffer);
+	openglBuffers.push_back(bufObj);
+	return bufObj;
+}
+
+OpenGLBuffer* Context::createGLBuffer(size_t size, const GLvoid* data, bool isStatic) {
+	GLuint buffer;
+	GLenum usage;
+	if(isStatic)
+		usage = GL_STATIC_DRAW;
+	else
+		usage = GL_DYNAMIC_DRAW;
+	
+	glGenBuffers(1, &buffer);
+	glBindBuffer(GL_ARRAY_BUFFER, buffer);
+	glBufferData(GL_ARRAY_BUFFER, size, data, usage);
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	OpenGLBuffer *bufObj = this->createGLBuffer(buffer);
+	bufObj->_created = true;
+	return bufObj;
+}
+
+
+void Context::releaseBuffer(OpenGLBuffer *buffer) {
+	buffer->close();
+	removeFromVector(this->openglBuffers, buffer);
+}
+
+void OpenGLBuffer::readBuffer(size_t size, void* data, bool blocking) {
+	if(_closed) throw OpenCLException("Buffer is closed");
+	if(!_aquired) this->aquire();
+	this->_context->readBuffer(this->_mem, size, data, blocking);
+	
+}
+
+void OpenGLBuffer::writeBuffer(size_t size, void* data, bool blocking) {
+	if(_closed) throw OpenCLException("Buffer is closed");
+	if(!_aquired) this->aquire();
+	this->_context->writeBuffer(this->_mem, size, data, blocking);
+}
+
+#endif
+
+
+
 #undef _FLEXCL_DEVICE_CPU_
 #undef _FLEXCL_DEVICE_GPU_
 #undef _FLEXCL_DEVICE_ACCELERATED_
+
+
+
+
