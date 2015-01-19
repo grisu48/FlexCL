@@ -31,19 +31,22 @@ using namespace std;
 
 
 
-static cl_context createOpenGlContext() {
+static cl_context createOpenGlContext(bool initGlut = false) {
 	/* ==== Set up OpenGL. This is needed otherwise the current OpenGL device is not found by OpenGL ==== */
-	int argc = 0;
-	glutInit(&argc, NULL);
-	glutCreateWindow("");
-	
-	GLenum res = glewInit();
-    if (res != GLEW_OK)
-    {
-        string error = "Glew error";
-        char* glewError = (char*)glewGetErrorString(res);
-        error = error + string( glewError );
-        throw error;
+	if(initGlut) {
+		int argc = 0;
+		glutInit(&argc, NULL);
+		glutCreateWindow("");
+		
+		
+		GLenum res = glewInit();
+		if (res != GLEW_OK)
+		{
+			string error = "Glew error";
+			char* glewError = (char*)glewGetErrorString(res);
+			error = error + string( glewError );
+			throw error;
+		}
     }
 	
 	/* ==== Setting up OpenCL and query OpenGL shared devices==== */
@@ -93,7 +96,20 @@ static cl_context createOpenGlContext() {
 
 int main(int argc, char** argv) {
     cout << "OpenCL/OpenGL interoperability | Query devices" << endl;
-
+	
+	// Manually init glut
+	glutInit(&argc, argv);
+	glutCreateWindow("");
+	
+	
+	GLenum res = glewInit();
+	if (res != GLEW_OK)
+	{
+		cerr << "Glew initialisation failed: " << glewGetErrorString(res) << endl;
+		return EXIT_FAILURE;
+	}
+	
+	
 	try {
 		cl_context context = createOpenGlContext();
 		if(context == NULL) {
