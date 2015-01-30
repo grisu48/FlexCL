@@ -433,21 +433,15 @@ protected:
 	
 	int _device_type = 0;
 	
-	std::string _name;
-	std::string _vendor;
-	std::string _extensions;
-	std::string _max_mem_alloc_size;
-	std::string _max_compute_units;
-	std::string _device_version;
-	std::string _driver_version;
-	std::string _device_opencl_version;
-	std::string _address_bits;
-	std::string _global_mem_size;
-	std::string _global_mem_cache_size;
-	std::string _local_mem_size;
-	std::string _local_mem_type;
-	size_t _timer_resolution;
 	
+	/** Device info as unsigned int*/
+	unsigned int getDeviceInfo_ui(cl_device_info param_name);
+	/** Device info as int*/
+	int getDeviceInfo_i(cl_device_info param_name);
+	/** Device info as unsigned long*/
+	unsigned long getDeviceInfo_ul(cl_device_info param_name);
+	/** Device info as long*/
+	long getDeviceInfo_l(cl_device_info param_name);
 public:
 	virtual ~DeviceInfo();
 	cl_device_id device_id();
@@ -472,6 +466,26 @@ public:
 	std::string global_mem_cache_size();
 	std::string local_mem_size();
 	std::string local_mem_type();
+	
+	unsigned long getGlobalMemCacheSize(void);
+	unsigned int getGlobalCachelineSize(void);
+	unsigned int getGlobalMemSize(void);
+	bool hasImageSupport(void);
+	unsigned long getLocalMemSize(void);
+	/** Maximum configured clock frequency in MHz */
+	unsigned int getMaxClockFrequency(void);
+	unsigned int getMaxComputeUnits(void);
+	unsigned int getMaxConstantArguments(void);
+	unsigned long getMaxConstantBufferSize(void);
+	unsigned long getMaxMemAllocSize(void);
+	size_t getMaxParameterSize(void);
+	
+	
+	/** Query a given cl_device info. A complete list of the available options is found at
+	 * https://www.khronos.org/registry/cl/sdk/1.0/docs/man/xhtml/clGetDeviceInfo.html
+	 * */
+	std::string getDeviceInfo(cl_device_info param_name);
+	
 	friend class OpenCL;
 	friend class Context;
 	friend class PlatformInfo;

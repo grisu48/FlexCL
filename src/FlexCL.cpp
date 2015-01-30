@@ -1206,8 +1206,8 @@ vector<DeviceInfo> PlatformInfo::devices() {
 #define _FLEXCL_DEVICE_GPU_ 0x2
 #define _FLEXCL_DEVICE_ACCELERATED_ 0x4
 
-static inline string flexCL_device_info(cl_device_id id, cl_platform_info param_name) {
-	const int BUF_SIZE = 1024 * 10;
+static string flexCL_device_info(cl_device_id id, cl_platform_info param_name) {
+	const int BUF_SIZE = 1024 * 10;		// For sure enough memory
 	
 	cl_int ret;
 	char buffer[BUF_SIZE];
@@ -1217,7 +1217,10 @@ static inline string flexCL_device_info(cl_device_id id, cl_platform_info param_
 	return string(buffer);
 }
 
-
+/*
+ * A full list of available options is found at
+ * https://www.khronos.org/registry/cl/sdk/1.0/docs/man/xhtml/clGetDeviceInfo.html
+ */
 DeviceInfo::DeviceInfo(cl_device_id device_id) {
 	cl_int ret;
 	this->_device_id = device_id;
@@ -1229,54 +1232,81 @@ DeviceInfo::DeviceInfo(cl_device_id device_id) {
 	if((device_type & CL_DEVICE_TYPE_CPU) != 0) this->_device_type |= _FLEXCL_DEVICE_CPU_;
 	if((device_type & CL_DEVICE_TYPE_GPU) != 0) this->_device_type |= _FLEXCL_DEVICE_GPU_;
 	if((device_type & CL_DEVICE_TYPE_ACCELERATOR) != 0) this->_device_type |= _FLEXCL_DEVICE_ACCELERATED_;
-	
-	this->_name = flexCL_device_info(device_id, CL_DEVICE_NAME);
-	this->_vendor = flexCL_device_info(device_id, CL_DEVICE_VENDOR);
-	this->_extensions = flexCL_device_info(device_id, CL_DEVICE_EXTENSIONS);
-	this->_max_mem_alloc_size = flexCL_device_info(device_id, CL_DEVICE_EXTENSIONS);
-	this->_max_compute_units = flexCL_device_info(device_id, CL_DEVICE_MAX_MEM_ALLOC_SIZE);
-	this->_device_version = flexCL_device_info(device_id, CL_DEVICE_VERSION);
-	this->_driver_version = flexCL_device_info(device_id, CL_DRIVER_VERSION);
-	this->_device_opencl_version = flexCL_device_info(device_id, CL_DEVICE_OPENCL_C_VERSION);
-	this->_address_bits = flexCL_device_info(device_id, CL_DEVICE_ADDRESS_BITS);
-	this->_global_mem_size = flexCL_device_info(device_id, CL_DEVICE_GLOBAL_MEM_SIZE);
-	this->_global_mem_cache_size = flexCL_device_info(device_id, CL_DEVICE_GLOBAL_MEM_CACHE_SIZE);
-	this->_local_mem_size = flexCL_device_info(device_id, CL_DEVICE_LOCAL_MEM_SIZE);
-	this->_local_mem_type = flexCL_device_info(device_id, CL_DEVICE_LOCAL_MEM_TYPE);
-	
-	ret = clGetDeviceInfo(device_id, CL_DEVICE_PROFILING_TIMER_RESOLUTION, sizeof(size_t), &this->_timer_resolution, NULL);
-	checkReturn(ret, "Error getting device info");
 }
 
 DeviceInfo::~DeviceInfo() {}
 
 cl_device_id DeviceInfo::device_id() { return this->_device_id; }
 
-string DeviceInfo::max_mem_alloc_size() { return this->_max_mem_alloc_size; }
-string DeviceInfo::max_compute_units() { return this->_max_compute_units; }
-string DeviceInfo::device_version() { return this->_device_version; }
-string DeviceInfo::driver_version() { return this->_driver_version; }
-string DeviceInfo::device_opencl_version() { return this->_device_opencl_version; }
-string DeviceInfo::address_bits() { return this->_address_bits; }
-string DeviceInfo::global_mem_size() { return this->_global_mem_size; }
-string DeviceInfo::global_mem_cache_size() { return this->_global_mem_cache_size; }
-string DeviceInfo::local_mem_size() { return this->_local_mem_size; }
-string DeviceInfo::local_mem_type() { return this->_local_mem_type; }
+string DeviceInfo::getDeviceInfo(cl_device_info param_name) {
+	const int BUF_SIZE = 1024 * 10;		// For sure enough memory
+	
+	cl_int ret;
+	char buffer[BUF_SIZE];
+	
+	ret = clGetDeviceInfo(this->_device_id, param_name, BUF_SIZE, buffer, NULL);
+	checkReturn(ret, "Error getting device info");
+	return string(buffer);
+}
+
+unsigned int DeviceInfo::getDeviceInfo_ui(cl_device_info param_name) {
+	string str = this->getDeviceInfo(param_name);
+	return (unsigned int)atoi(str.c_str());
+}
+int DeviceInfo::getDeviceInfo_i(cl_device_info param_name) {
+	string str = this->getDeviceInfo(param_name);
+	return atoi(str.c_str());
+}
+unsigned long DeviceInfo::getDeviceInfo_ul(cl_device_info param_name) {
+	string str = this->getDeviceInfo(param_name);
+	return (unsigned long)atol(str.c_str());
+}
+long DeviceInfo::getDeviceInfo_l(cl_device_info param_name) {
+	string str = this->getDeviceInfo(param_name);
+	return atol(str.c_str());
+}
+	
+string DeviceInfo::max_mem_alloc_size() { return flexCL_device_info(this->_device_id, CL_DEVICE_EXTENSIONS); }
+string DeviceInfo::max_compute_units() { return flexCL_device_info(this->_device_id, CL_DEVICE_MAX_MEM_ALLOC_SIZE); }
+string DeviceInfo::device_version() { return flexCL_device_info(this->_device_id, CL_DEVICE_VERSION); }
+string DeviceInfo::driver_version() { return flexCL_device_info(this->_device_id, CL_DRIVER_VERSION); }
+string DeviceInfo::device_opencl_version() { return flexCL_device_info(this->_device_id, CL_DEVICE_OPENCL_C_VERSION); }
+string DeviceInfo::address_bits() { return flexCL_device_info(this->_device_id, CL_DEVICE_ADDRESS_BITS); }
+string DeviceInfo::global_mem_size() { return flexCL_device_info(this->_device_id, CL_DEVICE_GLOBAL_MEM_SIZE); }
+string DeviceInfo::global_mem_cache_size() { return flexCL_device_info(this->_device_id, CL_DEVICE_GLOBAL_MEM_CACHE_SIZE); }
+string DeviceInfo::local_mem_size() { return flexCL_device_info(this->_device_id, CL_DEVICE_LOCAL_MEM_SIZE); }
+string DeviceInfo::local_mem_type() { return flexCL_device_info(this->_device_id, CL_DEVICE_LOCAL_MEM_TYPE); }
 
 bool DeviceInfo::isCPU(void) { return (this->_device_type & _FLEXCL_DEVICE_CPU_) != 0; }
 bool DeviceInfo::isGPU(void) { return (this->_device_type & _FLEXCL_DEVICE_GPU_) != 0; }
 bool DeviceInfo::isAccelerator(void)  { return (this->_device_type & _FLEXCL_DEVICE_ACCELERATED_) != 0; }
 
-string DeviceInfo::name() { return this->_name; }
-string DeviceInfo::vendor() { return this->_vendor; }
-string DeviceInfo::extensions() { return this->_extensions; }
+string DeviceInfo::name() { return flexCL_device_info(this->_device_id, CL_DEVICE_NAME); }
+string DeviceInfo::vendor() { return flexCL_device_info(this->_device_id, CL_DEVICE_VENDOR); }
+string DeviceInfo::extensions() { return flexCL_device_info(this->_device_id, CL_DEVICE_EXTENSIONS); }
 
 unsigned long DeviceInfo::timer_resolution() {
-	if(this->_timer_resolution < 0L) return 0L;
-	else return (unsigned long)this->_timer_resolution;
+	cl_int ret;
+	size_t timer_resolution;
+	ret = clGetDeviceInfo(this->_device_id, CL_DEVICE_PROFILING_TIMER_RESOLUTION, sizeof(size_t), &timer_resolution, NULL);
+	checkReturn(ret, "Error getting device info (Timer resolution)");
+	
+	if(timer_resolution < 0L) return 0L;
+	else return (unsigned long)timer_resolution;
 }
 
+unsigned long DeviceInfo::getGlobalMemCacheSize(void) { return this->getDeviceInfo_ul(CL_DEVICE_GLOBAL_MEM_CACHE_SIZE); }
+unsigned int DeviceInfo::getGlobalCachelineSize(void) { return this->getDeviceInfo_ui(CL_DEVICE_GLOBAL_MEM_CACHELINE_SIZE); }
+unsigned int DeviceInfo::getGlobalMemSize(void) { return this->getDeviceInfo_ui(CL_DEVICE_GLOBAL_MEM_SIZE); }
 
+bool DeviceInfo::hasImageSupport(void) { return this->getDeviceInfo_i(CL_DEVICE_IMAGE_SUPPORT) > 0; }
+unsigned long DeviceInfo::getLocalMemSize(void) { return this->getDeviceInfo_ul(CL_DEVICE_LOCAL_MEM_SIZE); }
+unsigned int DeviceInfo::getMaxClockFrequency(void) { return this->getDeviceInfo_ui(CL_DEVICE_MAX_CLOCK_FREQUENCY); }
+unsigned int DeviceInfo::getMaxComputeUnits(void) { return this->getDeviceInfo_ui(CL_DEVICE_MAX_COMPUTE_UNITS); }
+unsigned int DeviceInfo::getMaxConstantArguments(void) { return this->getDeviceInfo_ui(CL_DEVICE_MAX_CONSTANT_ARGS); }
+unsigned long DeviceInfo::getMaxConstantBufferSize(void) { return this->getDeviceInfo_ul(CL_DEVICE_MAX_CONSTANT_BUFFER_SIZE); }
+unsigned long DeviceInfo::getMaxMemAllocSize(void) { return this->getDeviceInfo_ul(CL_DEVICE_MAX_MEM_ALLOC_SIZE); }
+size_t DeviceInfo::getMaxParameterSize(void) { return (size_t)this->getDeviceInfo_l(CL_DEVICE_MAX_PARAMETER_SIZE); }
 
 
 
